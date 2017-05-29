@@ -64,6 +64,7 @@ world_coords_H = np.linalg.inv(H).dot(np.vstack((px_coords.T, np.ones(len(px_coo
 world_coords_H = world_coords_H[0:2, :]/world_coords_H[2,:]
 
 
+
 #plot
 ind = list(range(N))
 col = ['b', 'g', 'r', 'c', 'm', 'k', 'g', 'b', 'b', 'b']
@@ -81,7 +82,20 @@ plt.scatter(world_coords_H[0,ind], world_coords_H[1,ind], label='world H', c=col
 plt.legend()
 plt.show()
 
-np.save('homography.npy', H)
+np.save('homography1.npy', H)
+#homography from dataset:
+h1 =  -0.093906
+h2 =  -0.593566
+h3 =  92.340814
+h4 =  -0.100614
+h5 =  -0.414678
+h6 =  117.043125
+h7 =  -0.001519
+h8 =  -0.005823
+h9 =  1.0
+Hdata = np.array([[h1, h2, h3], 
+  [h4, h5, h6],
+  [h7, h8, h9]])
 
 pdb.set_trace()
 
