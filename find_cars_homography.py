@@ -20,7 +20,6 @@ measurement_prob_th = 1e-6
 load_net = 0
 lenPlot = 300;
 colors = cm.rainbow(np.random.permutation(256))
-#font = cv.InitFont(cv.CV_FONT_HERSHEY_SIMPLEX, 1, 1, 0, 3, 8) #Creates a font
 
 def mvn(x, mean, cov, cov_inv):
   y = x - mean;
@@ -38,9 +37,8 @@ def mvn(x, mean, cov, cov_inv):
 if __name__ == "__main__":
 
 
-
-  H = np.load('homography.npy')
-  Hinv = np.linalg.inv(H)
+  H0 = np.load('homography.npy')
+  H0inv = np.linalg.inv(H0)
 
   boxes_list = []
   options = {"model": "./cfg/yolo.cfg", "load": "./yolo.weights", "threshold": 0.1}
@@ -64,19 +62,6 @@ if __name__ == "__main__":
   idt = 1/dt
 
   
-  '''
-  A = np.array([
-    [1,0,0,0,dt,0,0,0,0.5*dt**2,0],
-    [0,1,0,0,0,dt,0,0,0,0.5*dt**2],
-    [1,0,0,0,0,0,0,0,0,0],
-    [0,1,0,0,0,0,0,0,0,0],
-    [idt,0,-idt,0,0,0,0,0,0,0],
-    [0,idt,0,-idt,0,0,0,0,0,0],
-    [0,0,0,0,1,0,0,0,0,0],
-    [0,0,0,0,0,1,0,0,0,0],
-    [0,0,0,0,idt,0,-idt,0,0,0],
-    [0,0,0,0,0,idt,0,-idt,0,0]])
-  '''
    
   A = np.array([
     [1,0,0,0,dt,0],
@@ -86,13 +71,17 @@ if __name__ == "__main__":
     [idt,0,-idt,0,0,0],
     [0,idt,0,-idt,0,0]])
   
-
-  nStates = len(A)
+  nAStates = len(A);
+    
+  nStates = nAStates + 8
+  A = np.vstack((A, np.zeros((8,nAstates)))) 
+  AI = np.vstack((np.zeros((nAStates, 8)), np.eye(8)))
+  A = np.hstack((A, AI))
+  H_arr = H0.flatten()
   
   Q = (dt**2)*10*np.eye(nStates)
   
-  #C = np.array([[1,0,0,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0,0,0]])
-  C = np.array([[1,0,0,0,0,0],[0,1,0,0,0,0]])
+  C = np.zeros((2, nStates))
 
   x_est = np.array([])
   sig_est = np.array([])
@@ -155,6 +144,8 @@ if __name__ == "__main__":
 
 
     nPts = len(lowerY)
+    H = np.reshape(np.hstack((Harr, 1)), (3,3))
+    Hinv = np.linalg.inv(H)
 
     #get 3D points of cars
     if nPts > 0:
@@ -174,7 +165,7 @@ if __name__ == "__main__":
       sig_pred = np.matmul(np.matmul(A, sig_est), A.T) + Q
 
     else:
-      #initialize filter to measuements
+      #initialize filter to measurements
       x_pred = np.vstack((pw.T, pw.T, np.zeros((nStates-4, nPts)))).T
       #set the variance to log(1/confidence)
       sig_pred = np.minimum(np.log(1/confidence),5)[:, np.newaxis, np.newaxis]*np.eye(nStates)
