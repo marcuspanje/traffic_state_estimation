@@ -18,7 +18,7 @@ clim = (0, 798)
 rlim = (140, 500)
 measurement_prob_th = 1e-6
 load_net = 0
-lenPlot = 300;
+lenPlot = 30;
 colors = cm.rainbow(np.random.permutation(256))
 
 def mvn(x, mean, cov, cov_inv):
@@ -33,6 +33,13 @@ def mvn(x, mean, cov, cov_inv):
   y4 = 1/np.sqrt((2*np.pi)**len(x)*np.linalg.det(cov))
   return y3*y4
   
+def augmentStates(x, sig, Hflat, sig_H):
+  x_new = np.hstack(x, np.tile(Hflat, (len(x),1)))
+  zeros_xh = np.zeros(np.shape(x)[1], len(sig_H)) 
+  sig_new = np.hstack((sig, zeros_xh))
+  sig_newH = np.hstack((zeros_xh.T, sig_H)) 
+  sig_new = np.vstack((sig_new, sig_newH))
+  return (x_new, sig_new)
 
 if __name__ == "__main__":
 
@@ -55,14 +62,11 @@ if __name__ == "__main__":
 
   #kalman filter variables
   x_est = [] 
-  nStates = 10 #[xt,yt,xt-1,yt-1, vxt, vyt]
   nMeas = 2
   fps = 30
   dt = 1/fps
   idt = 1/dt
 
-  
-   
   A = np.array([
     [1,0,0,0,dt,0],
     [0,1,0,0,0,dt],
@@ -71,13 +75,15 @@ if __name__ == "__main__":
     [idt,0,-idt,0,0,0],
     [0,idt,0,-idt,0,0]])
   
-  nAStates = len(A);
+  nStatesX = len(A)
+  nStatesH = 8
     
-  nStates = nAStates + 8
-  A = np.vstack((A, np.zeros((8,nAstates)))) 
-  AI = np.vstack((np.zeros((nAStates, 8)), np.eye(8)))
+  nStates = nStatesX + nStatesH
+  A = np.vstack((A, np.zeros((8,nStatesX)))) 
+  AI = np.vstack((np.zeros((nStatesX, 8)), np.eye(8)))
   A = np.hstack((A, AI))
-  H_arr = H0.flatten()
+  Hflat = H0.flatten()
+  sig_H = 0.1*np.eye(8)
   
   Q = (dt**2)*10*np.eye(nStates)
   
@@ -92,7 +98,7 @@ if __name__ == "__main__":
   x_meas_plot = np.array([]).reshape(0,2,lenPlot);
   valid_t = np.array([],dtype=bool).reshape(0,2,lenPlot);#axis 0 is meas, axis 1 is estimate
 
-
+  Hplot = np.zeros(nStatesX, lenPlot)
 
   while (cap.isOpened()): 
     ret,frame_large = cap.read()
@@ -144,7 +150,7 @@ if __name__ == "__main__":
 
 
     nPts = len(lowerY)
-    H = np.reshape(np.hstack((Harr, 1)), (3,3))
+    H = np.reshape(np.hstack((Hflat, 1)), (3,3))
     Hinv = np.linalg.inv(H)
 
     #get 3D points of cars
@@ -168,7 +174,10 @@ if __name__ == "__main__":
       #initialize filter to measurements
       x_pred = np.vstack((pw.T, pw.T, np.zeros((nStates-4, nPts)))).T
       #set the variance to log(1/confidence)
-      sig_pred = np.minimum(np.log(1/confidence),5)[:, np.newaxis, np.newaxis]*np.eye(nStates)
+      sig_pred = np.minimum(np.log(1/confidence),5)[:, np.newaxis, np.newaxis]*np.eye(nStatesX)
+      x_pred, sig_pred = augmentStatesH(x_pred, sig_pred)
+      w_H = np.array([1/nPts]*nPts)
+      
       x_est = np.copy(x_pred)
       sig_est = np.copy(sig_pred)
 
@@ -208,7 +217,9 @@ if __name__ == "__main__":
         valid_t[id_cur[p],0,fr] = True #valid measurement
         meas_id[yi] = id_cur[p]
 
-        
+        #update homography weights
+        w_H[p] = w_H[p] * probs[yi]
+
         cv2.putText(frame, '%d' % id_cur[p], (int(px[yi,0]-clim[0]), int(px[yi,1]-rlim[0]+40)), 
           0,0.8, (0,0,255), 1,1)
 
@@ -218,9 +229,11 @@ if __name__ == "__main__":
     Rmarked_inv = np.invert(Rmarked)
     x_new = np.tile(pw[Rmarked_inv, :], (1,2))
     x_new = np.hstack((x_new, np.zeros((len(x_new), nStates-4))))
+    sig_new = np.minimum(np.log(1/confidence[Rmarked_inv, np.newaxis, np.newaxis]), 15)*np.eye(nStates)
+    x_new, sig_new = augmentStates(x_new, sig_new, sig_H)
+
     x_est = np.vstack((x_est, x_new))
     x_pred = np.vstack((x_pred, x_new))
-    sig_new = np.minimum(np.log(1/confidence[Rmarked_inv, np.newaxis, np.newaxis]), 15)*np.eye(nStates)
     sig_est = np.vstack((sig_est, sig_new))
 
     id_new = np.array(range(len(id_all), len(id_all) + len(x_new)),dtype=int)
@@ -235,6 +248,7 @@ if __name__ == "__main__":
 
     valid_t_new = np.zeros((len(x_new),2,lenPlot),dtype=bool);
     valid_t = np.vstack((valid_t, valid_t_new))
+    
 
     #reproject onto picture 
     px_est = H.dot(np.vstack((x_est[:, 0:2].T, np.ones(len(x_est)))))
@@ -255,9 +269,21 @@ if __name__ == "__main__":
     px_pred = px_pred[valid,:]
     x_est = x_est[valid, :]
     sig_est = sig_est[valid, :, :]
-    print(sig_est[:,0,0])
+    w_p = w_p[valid]
+    #print(sig_est[:,0,0])
     id_cur = id_cur[valid]
     valid_t[id_cur, 1,fr] = True; #valid state
+
+    #update H
+    w_p = w_p/np.linalg.norm(w_p)
+    Hcomp = x_est[:,nStatesX:]
+    Hflat = np.sum(w_p * Hcomp.T, axis=1)
+    Hdiff = Hcomp - Hflat
+    sig_H = np.zeros((nStatesH, nStatesH))
+    for j in range(len(w_p)):
+      sig_H = sig_H + w_p[j] * np.outer(Hdiff[p], Hdiff[p])
+
+    Hplot[:,i] = Hflat.copy()
 
     #pdb.set_trace()
     im_ax.clear()
@@ -287,6 +313,12 @@ if __name__ == "__main__":
   for p in [6,7,8]:
     ax.scatter(x_meas_plot[p,0,valid_t[p,0,:]], x_meas_plot[p,1,valid_t[p,0,:]], color='C%d'%p, marker='x')
     ax.scatter(x_est_plot[p,0,valid_t[p,1,:]], x_est_plot[p,1,valid_t[p,1,:]], color='C%d'%p, marker='o')
+
+
+  plt.figure(3)
+  for p in range(nStatesH):
+    plt.subplot(nStatesH,1,p)
+    plt.plot(range(lenPlot), Hplot[p,:])
 
   plt.show()
 
