@@ -60,8 +60,14 @@ R*diff[:,0]]).T
 
 #find homography and reproject to check
 H,mask = cv2.findHomography(world_coords, px_coords)
+#H_est = np.load('H_est.npy')
+H_est = np.array([[  1.95845887e+01,   2.41150034,   1.19207398e+02],
+ [ -2.71547305e-01,   3.15876215,   2.16062945e+02],
+ [  4.62844163e-02,   3.09471411e-02,   1.00000000]])
 world_coords_H = np.linalg.inv(H).dot(np.vstack((px_coords.T, np.ones(len(px_coords)))))
+world_coords_H_est = np.linalg.inv(H_est).dot(np.vstack((px_coords.T, np.ones(len(px_coords)))))
 world_coords_H = world_coords_H[0:2, :]/world_coords_H[2,:]
+world_coords_H_est = world_coords_H_est[0:2, :]/world_coords_H_est[2,:]
 
 
 
@@ -79,10 +85,11 @@ plt.figure(2)
 plt.scatter(world_coords[ind,0], world_coords[ind,1], label='world', c=col)
 
 plt.scatter(world_coords_H[0,ind], world_coords_H[1,ind], label='world H', c=col)
+plt.scatter(world_coords_H_est[0,ind], world_coords_H_est[1,ind], label='world H est', c=col)
 plt.legend()
 plt.show()
 
-np.save('homography1.npy', H)
+#np.save('homography1.npy', H)
 #homography from dataset:
 h1 =  -0.093906
 h2 =  -0.593566

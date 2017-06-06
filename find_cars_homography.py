@@ -18,8 +18,49 @@ clim = (0, 798)
 rlim = (140, 500)
 measurement_prob_th = 1e-6
 load_net = 0
-lenPlot = 30;
+lenPlot = 100;
 colors = cm.rainbow(np.random.permutation(256))
+
+#kalman filter variables
+x_est = [] 
+nMeas = 2
+fps = 30
+dt = 1/fps
+idt = 1/dt
+
+A = np.array([
+  [1,0,0,0,dt,0],
+  [0,1,0,0,0,dt],
+  [1,0,0,0,0,0],
+  [0,1,0,0,0,0],
+  [idt,0,-idt,0,0,0],
+  [0,idt,0,-idt,0,0]])
+
+nStatesX = len(A)
+nStatesH = 9
+nStates = nStatesX + nStatesH
+
+A = np.vstack((A, np.zeros((nStatesH,nStatesX)))) 
+AI = np.vstack((np.zeros((nStatesX, nStatesH)), np.eye(nStatesH)))
+A = np.hstack((A, AI))
+
+H0 = np.load('homography.npy')
+H0inv = np.linalg.inv(H0)
+H_flat = H0.flatten()
+sig_H = 0.1*np.eye(nStatesH)
+
+Q = (dt**2)*10*np.eye(nStates)
+
+x_est = np.array([])
+sig_est = np.array([])
+
+id_all = np.array([], dtype=int); 
+id_cur = np.array([], dtype=int); 
+x_est_plot = np.array([]).reshape(0,2,lenPlot);
+x_meas_plot = np.array([]).reshape(0,2,lenPlot);
+valid_t = np.array([],dtype=bool).reshape(0,2,lenPlot);#axis 0 is meas, axis 1 is estimate
+
+H_plot = np.zeros((nStatesH, lenPlot))
 
 def mvn(x, mean, cov, cov_inv):
   y = x - mean;
@@ -33,19 +74,53 @@ def mvn(x, mean, cov, cov_inv):
   y4 = 1/np.sqrt((2*np.pi)**len(x)*np.linalg.det(cov))
   return y3*y4
   
-def augmentStates(x, sig, Hflat, sig_H):
-  x_new = np.hstack(x, np.tile(Hflat, (len(x),1)))
-  zeros_xh = np.zeros(np.shape(x)[1], len(sig_H)) 
-  sig_new = np.hstack((sig, zeros_xh))
-  sig_newH = np.hstack((zeros_xh.T, sig_H)) 
-  sig_new = np.vstack((sig_new, sig_newH))
+def augmentStatesH(x, sig, H_flat, sig_H):
+  #nStatesH = len(sig_H)
+  #nStatesX = np.shape(x)[1] - nStatesH
+  if len(x) == 0:
+    return (np.zeros((0,nStates)), np.zeros((0,nStates,nStates)))
+
+  x_new = np.hstack((x, np.tile(H_flat, (len(x),1))))
+  zeros_xh = np.zeros((nStatesX, nStatesH)) 
+  sig_new = np.zeros((len(x), nStatesX+nStatesH, nStatesX+nStatesH)) 
+  sig_new[:,0:nStatesX,0:nStatesX] = sig.copy()
+  sig_new[:,0:nStatesX,nStatesX:] = zeros_xh
+  sig_new[:,nStatesX:,0:nStatesX] = zeros_xh.T
+  sig_new[:,nStatesX:,nStatesX:] = sig_H.copy()
   return (x_new, sig_new)
 
+def getC(x):
+  nX = nStatesX
+  C = np.zeros((2, nStates))
+  h = x[nX:]
+  Hp = np.reshape(h, (3,3))
+  xw = Hp.dot(np.array([x[0], x[1], 1]))
+  xw3_2 = xw[2]**2
+  
+  C[0,0] = (xw[2]*h[0] - xw[0]*h[6])/xw3_2
+  C[0,1] = (xw[2]*h[1] - xw[0]*h[7])/xw3_2
+  C[0,nX] = x[0]/xw[2] 
+  C[0,nX+1] = x[1]/xw[2]
+  C[0,nX+2] = 1/xw[2]
+  C[0,nX+6] = -xw[0]/(xw3_2*x[0])
+  C[0,nX+7] = -xw[0]/(xw3_2*x[1])
+  C[0,nX+8] = -xw[0]/xw3_2
+  
+  C[1,0] = (xw[2]*h[3] - xw[1]*h[6])/xw3_2
+  C[1,1] = (xw[2]*h[4] - xw[1]*h[7])/xw3_2
+
+  C[1,nX+3] = C[0,nX]
+  C[1,nX+4] = C[0,nX+1]
+  C[1,nX+5] = C[0,nX+2]
+
+  C[1,nX+6] = -xw[1]/(xw3_2*x[0])
+  C[1,nX+7] = -xw[1]/(xw3_2*x[1])
+  C[1,nX+8] = -xw[1]/xw3_2
+
+  return C
+  
+
 if __name__ == "__main__":
-
-
-  H0 = np.load('homography.npy')
-  H0inv = np.linalg.inv(H0)
 
   boxes_list = []
   options = {"model": "./cfg/yolo.cfg", "load": "./yolo.weights", "threshold": 0.1}
@@ -60,45 +135,8 @@ if __name__ == "__main__":
   
   fr = -1;
 
-  #kalman filter variables
-  x_est = [] 
-  nMeas = 2
-  fps = 30
-  dt = 1/fps
-  idt = 1/dt
 
-  A = np.array([
-    [1,0,0,0,dt,0],
-    [0,1,0,0,0,dt],
-    [1,0,0,0,0,0],
-    [0,1,0,0,0,0],
-    [idt,0,-idt,0,0,0],
-    [0,idt,0,-idt,0,0]])
-  
-  nStatesX = len(A)
-  nStatesH = 8
-    
-  nStates = nStatesX + nStatesH
-  A = np.vstack((A, np.zeros((8,nStatesX)))) 
-  AI = np.vstack((np.zeros((nStatesX, 8)), np.eye(8)))
-  A = np.hstack((A, AI))
-  Hflat = H0.flatten()
-  sig_H = 0.1*np.eye(8)
-  
-  Q = (dt**2)*10*np.eye(nStates)
-  
-  C = np.zeros((2, nStates))
-
-  x_est = np.array([])
-  sig_est = np.array([])
-
-  id_all = np.array([], dtype=int); 
-  id_cur = np.array([], dtype=int); 
-  x_est_plot = np.array([]).reshape(0,2,lenPlot);
-  x_meas_plot = np.array([]).reshape(0,2,lenPlot);
-  valid_t = np.array([],dtype=bool).reshape(0,2,lenPlot);#axis 0 is meas, axis 1 is estimate
-
-  Hplot = np.zeros(nStatesX, lenPlot)
+  Hplot = np.zeros((nStatesX, lenPlot))
 
   while (cap.isOpened()): 
     ret,frame_large = cap.read()
@@ -150,7 +188,7 @@ if __name__ == "__main__":
 
 
     nPts = len(lowerY)
-    H = np.reshape(np.hstack((Hflat, 1)), (3,3))
+    H = np.reshape(H_flat, (3,3))
     Hinv = np.linalg.inv(H)
 
     #get 3D points of cars
@@ -172,10 +210,10 @@ if __name__ == "__main__":
 
     else:
       #initialize filter to measurements
-      x_pred = np.vstack((pw.T, pw.T, np.zeros((nStates-4, nPts)))).T
+      x_pred = np.vstack((pw.T, pw.T, np.zeros((nStatesX-4, nPts)))).T
       #set the variance to log(1/confidence)
       sig_pred = np.minimum(np.log(1/confidence),5)[:, np.newaxis, np.newaxis]*np.eye(nStatesX)
-      x_pred, sig_pred = augmentStatesH(x_pred, sig_pred)
+      x_pred, sig_pred = augmentStatesH(x_pred, sig_pred, H_flat, sig_H)
       w_H = np.array([1/nPts]*nPts)
       
       x_est = np.copy(x_pred)
@@ -195,6 +233,8 @@ if __name__ == "__main__":
 
     #for all points, get most likely measurement and update KF
     for p in range(len(x_est)):
+      
+      C = getC(x_est[p])
       
       S = C.dot(sig_pred[p].dot(C.T)) + R
       S_inv = np.minimum(np.linalg.inv(S), 1000000)
@@ -224,29 +264,32 @@ if __name__ == "__main__":
           0,0.8, (0,0,255), 1,1)
 
     #pdb.set_trace()
+
+    h9 = x_est[:,-1]
+    x_est[:,nStatesX:] = x_est[:,nStatesX:]/h9[:,np.newaxis]
       
     #for all unmarked measurements, create new state
     Rmarked_inv = np.invert(Rmarked)
-    x_new = np.tile(pw[Rmarked_inv, :], (1,2))
-    x_new = np.hstack((x_new, np.zeros((len(x_new), nStates-4))))
-    sig_new = np.minimum(np.log(1/confidence[Rmarked_inv, np.newaxis, np.newaxis]), 15)*np.eye(nStates)
-    x_new, sig_new = augmentStates(x_new, sig_new, sig_H)
+    x_new_p = np.tile(pw[Rmarked_inv, :], (1,2))
+    x_new_p = np.hstack((x_new_p, np.zeros((len(x_new_p), nStatesX-4))))
+    sig_new_p = np.minimum(np.log(1/confidence[Rmarked_inv, np.newaxis, np.newaxis]), 15)*np.eye(nStatesX)
 
+    nNew = len(x_new_p)
+    x_new, sig_new = augmentStatesH(x_new_p, sig_new_p, H_flat, sig_H)
     x_est = np.vstack((x_est, x_new))
     x_pred = np.vstack((x_pred, x_new))
     sig_est = np.vstack((sig_est, sig_new))
+    w_H = np.hstack((w_H, [1/len(x_est)]*nNew))
 
-    id_new = np.array(range(len(id_all), len(id_all) + len(x_new)),dtype=int)
+    id_new = np.array(range(len(id_all), len(id_all) + nNew),dtype=int)
     meas_id[Rmarked_inv] = id_new
     id_cur = np.concatenate((id_cur, id_new))
     id_all = np.concatenate((id_all, id_new))
-    x_meas_plot_new = np.zeros((len(x_new), 2, lenPlot))
+    x_meas_plot_new = np.zeros((nNew, 2, lenPlot))
     x_meas_plot_new[:,:,fr] = x_new[:,0:2];
     x_meas_plot = np.vstack((x_meas_plot, x_meas_plot_new))
-
     x_est_plot = np.vstack((x_est_plot, x_meas_plot_new))
-
-    valid_t_new = np.zeros((len(x_new),2,lenPlot),dtype=bool);
+    valid_t_new = np.zeros((nNew,2,lenPlot),dtype=bool);
     valid_t = np.vstack((valid_t, valid_t_new))
     
 
@@ -262,28 +305,29 @@ if __name__ == "__main__":
       np.logical_and(px_est[:,0] > clim[0], px_est[:,0] < clim[1]),  
       np.logical_and(px_est[:,1] > rlim[0], px_est[:,1] < rlim[1]))  
   
-    valid = np.logical_and(valid, sig_est[:,0,0] < 1.5)
+    valid = np.logical_and(valid, sig_est[:,0,0] < 2.0)
 
     #print(valid)
     px_est = px_est[valid,:]
     px_pred = px_pred[valid,:]
     x_est = x_est[valid, :]
     sig_est = sig_est[valid, :, :]
-    w_p = w_p[valid]
+    w_H = w_H[valid]
     #print(sig_est[:,0,0])
     id_cur = id_cur[valid]
     valid_t[id_cur, 1,fr] = True; #valid state
 
     #update H
-    w_p = w_p/np.linalg.norm(w_p)
-    Hcomp = x_est[:,nStatesX:]
-    Hflat = np.sum(w_p * Hcomp.T, axis=1)
-    Hdiff = Hcomp - Hflat
+    w_H = w_H/np.linalg.norm(w_H)
+    H_comp = x_est[:,nStatesX:]
+    H_flat = np.sum(w_H * H_comp.T, axis=1)
+    H_diff = H_comp - H_flat
     sig_H = np.zeros((nStatesH, nStatesH))
-    for j in range(len(w_p)):
-      sig_H = sig_H + w_p[j] * np.outer(Hdiff[p], Hdiff[p])
+    for j in range(len(w_H)):
+      sig_H = sig_H + w_H[j] * np.outer(H_diff[j], H_diff[j])
 
-    Hplot[:,i] = Hflat.copy()
+    H_flat = H_flat/H_flat[-1]
+    H_plot[:,fr] = H_flat.copy()
 
     #pdb.set_trace()
     im_ax.clear()
@@ -317,14 +361,17 @@ if __name__ == "__main__":
 
   plt.figure(3)
   for p in range(nStatesH):
-    plt.subplot(nStatesH,1,p)
-    plt.plot(range(lenPlot), Hplot[p,:])
+    plt.subplot(nStatesH,1,p+1)
+    plt.plot(range(lenPlot), H_plot[p,:])
 
   plt.show()
 
   plt.pause(1.0)
   #pdb.set_trace()
   print('n cars: %d' % len(id_all))
+  print(H)
+  print(H0)
+  np.save('H_est', H)
     
     
   #cv2.destroyAllWindows()
