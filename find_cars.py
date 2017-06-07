@@ -113,7 +113,6 @@ if __name__ == "__main__":
       break;
       
     print(fr)
-
       
     #crop picture to region of interest
     frame = frame_large[rlim[0]:rlim[1], clim[0]:clim[1],:]
@@ -152,6 +151,10 @@ if __name__ == "__main__":
         confidence.append(b['confidence'])
       
     confidence = np.array(confidence)
+
+    plt.figure(3)
+    plt.imshow(frame)
+    plt.show()
 
 
     nPts = len(lowerY)
@@ -282,7 +285,7 @@ if __name__ == "__main__":
     w_ax.scatter(pw[:,0], pw[:,1], marker='^', c=colors[np.mod(meas_id, 256)],)
   
    # pdb.set_trace()
-    plt.show(block=False)
+    plt.show(block=True)
     plt.pause(0.1)
 
 
