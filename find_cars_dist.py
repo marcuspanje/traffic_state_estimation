@@ -243,14 +243,17 @@ if __name__ == "__main__":
     for p in range(len(x_est)):
       S = C.dot(sig_pred[p].dot(C.T)) + R
       S_inv = np.minimum(np.linalg.inv(S), 1000000)
-      M[:,p] = mvn(pw,x_pred[p, 0:2], S, S_inv)
+      #M[:,p] = mvn(pw,x_pred[p, 0:2], S, S_inv)
 
     #print(M)
-    M_max, S_max = associate_data(M)
+    #M_max, S_max = associate_data(M)
     #Rmarked[M_max > -1] = True
     #print(S_max)
     for p in range(len(x_est)):
-      yi = S_max[p]
+      print(pw-x_est[p,0:2])
+      yi = np.argmin(np.linalg.norm(pw - x_est[p,0:2],axis=1))
+      #print('yi: %d' % yi)
+      #yi = S_max[p]
       if yi > -1: 
         Rmarked[yi] = True
         y = pw[yi]
@@ -269,6 +272,7 @@ if __name__ == "__main__":
 
     #pdb.set_trace()
     sig_est = np.maximum(sig_est, 0.001)
+    print(Rmarked)
       
     #for all unmarked measurements, create new state
     Rmarked_inv = np.invert(Rmarked)
