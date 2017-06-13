@@ -247,7 +247,7 @@ if __name__ == "__main__":
 
     #print(M)
     M_max, S_max = associate_data(M)
-    #Rmarked[M_max > -1] = True
+    Rmarked[M_max > -1] = True
     #print(S_max)
     for p in range(len(x_est)):
       yi = S_max[p]

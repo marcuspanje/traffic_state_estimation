@@ -18,7 +18,7 @@ clim = (0, 798)
 rlim = (140, 500)
 measurement_prob_th = 1e-6
 load_net = 0
-lenPlot = 100;
+lenPlot = 20;
 colors = cm.rainbow(np.random.permutation(256))
 
 #kalman filter variables
@@ -102,8 +102,10 @@ def getC(x):
   C[0,nX] = x[0]/xw[2] 
   C[0,nX+1] = x[1]/xw[2]
   C[0,nX+2] = 1/xw[2]
-  C[0,nX+6] = -xw[0]/(xw3_2*x[0])
-  C[0,nX+7] = -xw[0]/(xw3_2*x[1])
+  #C[0,nX+6] = -xw[0]/(xw3_2*x[0])
+  #C[0,nX+7] = -xw[0]/(xw3_2*x[1])
+  C[0,nX+6] = -xw[0]*x[0]/(xw3_2)
+  C[0,nX+7] = -xw[0]*x[1]/(xw3_2)
   C[0,nX+8] = -xw[0]/xw3_2
   
   C[1,0] = (xw[2]*h[3] - xw[1]*h[6])/xw3_2
@@ -113,8 +115,8 @@ def getC(x):
   C[1,nX+4] = C[0,nX+1]
   C[1,nX+5] = C[0,nX+2]
 
-  C[1,nX+6] = -xw[1]/(xw3_2*x[0])
-  C[1,nX+7] = -xw[1]/(xw3_2*x[1])
+  C[1,nX+6] = -xw[1]*x[0]/(xw3_2)
+  C[1,nX+7] = -xw[1]*x[1]/(xw3_2)
   C[1,nX+8] = -xw[1]/xw3_2
 
   return C
@@ -361,8 +363,10 @@ if __name__ == "__main__":
 
   plt.figure(3)
   for p in range(nStatesH):
-    plt.subplot(nStatesH,1,p+1)
+    plt.subplot(5,2,p+1)
     plt.plot(range(lenPlot), H_plot[p,:])
+    plt.xlabel('iterations')
+    plt.ylabel('h%d' % (p+1))
 
   plt.show()
 
